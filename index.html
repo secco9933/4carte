@@ -22,7 +22,7 @@
     --muted: #7a9e82;
     --neon: #39ff9a;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
   body {
     background: var(--bg);
     color: var(--text);
@@ -208,17 +208,25 @@
   .leaderboard { margin-bottom: 36px; }
   .leaderboard h3 { font-family: 'Cinzel', serif; font-size: 0.72rem; color: var(--gold); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 16px; border-bottom: 1px solid var(--border2); padding-bottom: 10px; }
   .stats-table { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .st-header, .st-row { display: grid; grid-template-columns: 120px repeat(8, minmax(60px, 1fr)); gap: 2px; align-items: center; font-family: 'DM Mono', monospace; font-size: 0.7rem; min-width: 620px; }
-  .st-header { color: var(--muted); letter-spacing: 1px; text-transform: uppercase; padding: 6px 10px; margin-bottom: 4px; }
-  .st-header span:not(:first-child) { text-align: right; }
-  .st-sort { cursor: pointer; user-select: none; transition: color 0.15s; display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+  .stats-table-inner { min-width: 780px; }
+  .st-header, .st-row {
+    display: grid;
+    grid-template-columns: 100px 56px 56px 64px 56px 64px 72px 72px 62px;
+    align-items: center;
+    font-family: 'DM Mono', monospace; font-size: 0.68rem;
+  }
+  .st-header { color: var(--muted); letter-spacing: 0.5px; text-transform: uppercase; padding: 6px 6px; margin-bottom: 4px; line-height: 1.2; }
+  .st-header span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-header span:not(:first-child) { text-align: right; padding-right: 4px; }
+  .st-sort { cursor: pointer; user-select: none; transition: color 0.15s; display: flex; align-items: center; justify-content: flex-end; gap: 1px; padding-right: 4px; white-space: nowrap; }
   .st-sort:hover { color: var(--gold); }
-  .sort-icon { color: var(--gold); font-size: 0.65rem; min-width: 8px; }
-  .st-row { background: var(--felt2); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-bottom: 5px; transition: all 0.15s; }
+  .sort-icon { color: var(--gold); font-size: 0.6rem; flex-shrink: 0; }
+  .st-row { background: var(--felt2); border: 1px solid var(--border); border-radius: 6px; padding: 10px 6px; margin-bottom: 5px; transition: all 0.15s; }
   .st-row:hover { border-color: var(--gold); background: rgba(212,168,67,0.04); }
-  .st-name { display: flex; align-items: center; gap: 6px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500; }
-  .st-medal { font-size: 0.9rem; }
-  .st-val { text-align: right; color: var(--muted); }
+  .st-name { display: flex; align-items: center; gap: 5px; font-family: 'DM Sans', sans-serif; font-size: 0.85rem; font-weight: 500; overflow: hidden; }
+  .st-name span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .st-medal { font-size: 0.85rem; flex-shrink: 0; }
+  .st-val { text-align: right; color: var(--muted); padding-right: 4px; white-space: nowrap; }
   .st-val.pos { color: var(--neon); }
   .st-val.neg { color: var(--red2); }
 
@@ -957,20 +965,20 @@ function renderHistory() {
 
   html += `<div class="leaderboard">
     <h3>Statistiche giocatori</h3>
-    <div class="stats-table">
+    <div class="stats-table"><div class="stats-table-inner">
       <div class="st-header">
         <span>Giocatore</span>
-        <span class="st-sort" onclick="sortStats('games')">Partite<span class="sort-icon" id="si-games"></span></span>
-        <span class="st-sort" onclick="sortStats('wins')">Vittorie<span class="sort-icon" id="si-wins"></span></span>
-        <span class="st-sort" onclick="sortStats('losses')">Sconfitte<span class="sort-icon" id="si-losses"></span></span>
+        <span class="st-sort" onclick="sortStats('games')">Part.<span class="sort-icon" id="si-games"></span></span>
+        <span class="st-sort" onclick="sortStats('wins')">Vinte<span class="sort-icon" id="si-wins"></span></span>
+        <span class="st-sort" onclick="sortStats('losses')">Perse<span class="sort-icon" id="si-losses"></span></span>
         <span class="st-sort" onclick="sortStats('totalRounds')">Round<span class="sort-icon" id="si-totalRounds"></span></span>
-        <span class="st-sort" onclick="sortStats('closures')">Chiusure<span class="sort-icon" id="si-closures"></span></span>
-        <span class="st-sort" onclick="sortStats('avgRound')">Media/round<span class="sort-icon" id="si-avgRound"></span></span>
-        <span class="st-sort" onclick="sortStats('avgFinal')">Media finale<span class="sort-icon" id="si-avgFinal"></span></span>
-        <span class="st-sort" onclick="sortStats('money')">Saldo €<span class="sort-icon" id="si-money"></span></span>
+        <span class="st-sort" onclick="sortStats('closures')">Chius.<span class="sort-icon" id="si-closures"></span></span>
+        <span class="st-sort" onclick="sortStats('avgRound')">M/Round<span class="sort-icon" id="si-avgRound"></span></span>
+        <span class="st-sort" onclick="sortStats('avgFinal')">M/Final<span class="sort-icon" id="si-avgFinal"></span></span>
+        <span class="st-sort" onclick="sortStats('money')">Saldo<span class="sort-icon" id="si-money"></span></span>
       </div>
       <div id="st-body"></div>
-    </div>
+    </div></div>
   </div>`;
 
   // ---- Past games ----
@@ -1083,6 +1091,11 @@ function showNotification(msg) {
 
 // ---- INIT ----
 renderRoster();
+
+// Blocca zoom pinch (due dita) su tutti i browser mobile
+document.addEventListener('touchstart', function(e) {
+  if (e.touches.length > 1) e.preventDefault();
+}, { passive: false });
 </script>
 </body>
 </html>
