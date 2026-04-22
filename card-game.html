@@ -300,12 +300,6 @@
 
 <!-- SETUP PAGE NEW -->
 <div class="page active" id="page-setup">
-  <!-- Spectator banner shown when another device is playing -->
-  <div id="spectator-banner" style="display:none;background:var(--felt);border:1px solid var(--gold);border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center;">
-    <div style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--gold);letter-spacing:3px;margin-bottom:16px;">● PARTITA IN CORSO</div>
-    <div id="spectator-scoreboard" style="display:grid;gap:8px;margin-bottom:16px;"></div>
-    <div style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--muted);">Aspetta la fine della partita per iniziarne una nuova</div>
-  </div>
   <div class="setup-header">
     <h2>Nuova Partita</h2>
     <p>Seleziona chi gioca stasera</p>
@@ -423,6 +417,30 @@
     <button class="btn-danger" onclick="confirmClearHistory()" id="btn-clear-history" style="display:none;">Cancella tutto</button>
   </div>
   <div id="history-content"></div>
+</div>
+
+<!-- LIVE SPECTATOR OVERLAY -->
+<div class="overlay" id="overlay-spectator" style="z-index:150;flex-direction:column;padding:0;">
+  <div style="width:100%;max-width:540px;padding:28px 20px;">
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-family:'Cinzel Decorative',serif;font-size:1.1rem;color:var(--gold2);text-shadow:0 0 20px rgba(212,168,67,0.4);">♠ 4 Carte</div>
+      <div class="session-badge" style="display:inline-flex;margin-top:10px;">● Partita in corso — Round <span id="spec-round">1</span></div>
+    </div>
+    <div id="spec-scoreboard" style="display:grid;gap:10px;margin-bottom:28px;"></div>
+    <div style="text-align:center;font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--muted);letter-spacing:1px;">
+      IN ATTESA DELLA FINE DELLA PARTITA...
+    </div>
+    <div style="margin-top:16px;">
+      <div class="round-in-progress" style="margin-bottom:0;">
+        <div class="rip-cards">
+          <div class="rip-card c1">♠</div>
+          <div class="rip-card c2">♥</div>
+          <div class="rip-card c3">♦</div>
+          <div class="rip-card c4">♣</div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ROOM LOGIN OVERLAY -->
@@ -561,6 +579,7 @@ async function joinRoom() {
     }
 
     currentRoom = code;
+    localStorage.setItem('cardgame_room', code);
     document.getElementById('room-indicator').style.display = 'block';
     document.getElementById('room-indicator-code').textContent = code;
     document.getElementById('overlay-room').classList.remove('show');
@@ -716,33 +735,37 @@ function updateSetup() {
 }
 
 function renderLiveSpectator(liveGame) {
-  const banner = document.getElementById('spectator-banner');
-  const sb = document.getElementById('spectator-scoreboard');
-  const btnStart = document.getElementById('btn-start');
-  if (!banner) return;
+  if (state.active) return; // sono io che sto giocando, non mostrare
+  const overlay = document.getElementById('overlay-spectator');
+  const sb = document.getElementById('spec-scoreboard');
+  const roundEl = document.getElementById('spec-round');
+  if (!overlay) return;
 
-  banner.style.display = 'block';
-  if (btnStart) { btnStart.disabled = true; btnStart.textContent = 'Partita in corso...'; }
-
+  roundEl.textContent = liveGame.round || 1;
   const sorted = [...liveGame.players].sort((a, b) => a.total - b.total);
-  sb.innerHTML = sorted.map((p, i) => `
-    <div style="display:flex;justify-content:space-between;align-items:center;
-      background:var(--felt2);border:1px solid var(--border2);border-radius:8px;padding:10px 16px;">
-      <span style="font-family:'Cinzel',serif;font-size:0.82rem;color:var(--gold);margin-right:12px;">${i+1}</span>
-      <span style="flex:1;font-size:0.95rem;">${p.name}</span>
-      <span style="font-family:'Cinzel',serif;font-size:1rem;font-weight:700;
-        color:${p.total >= 80 ? 'var(--red2)' : 'var(--text)'};">${p.total}</span>
-    </div>`).join('');
+  sb.innerHTML = sorted.map((p, i) => {
+    const pct = Math.min(100, (p.total / 100) * 100);
+    const barColor = p.total >= 80 ? '#c0392b' : p.total >= 60 ? '#e67e22' : '#c9a84c';
+    const danger = p.total >= 80 ? `animation:dangerPulse 2s ease-in-out infinite;border-color:rgba(231,76,60,0.7);` : '';
+    return `
+      <div style="display:grid;grid-template-columns:32px 1fr 90px 50px;align-items:center;gap:12px;
+        background:var(--felt2);border:1px solid var(--border2);border-radius:10px;padding:14px 18px;${danger}">
+        <span style="font-family:'Cinzel',serif;font-size:0.85rem;color:var(--gold);font-weight:700;">${i+1}</span>
+        <span style="font-size:1rem;font-weight:600;">${p.name}</span>
+        <div style="height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;">
+          <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;transition:width 0.5s;"></div>
+        </div>
+        <span style="font-family:'Cinzel',serif;font-size:1.1rem;font-weight:700;text-align:right;
+          color:${p.total >= 80 ? 'var(--red2)' : 'var(--text)'};">${p.total}</span>
+      </div>`;
+  }).join('');
 
-  // Switch to setup page to show the banner
-  if (document.querySelector('.page.active')?.id !== 'page-game') showPage('setup');
+  overlay.classList.add('show');
 }
 
 function hideLiveSpectator() {
-  const banner = document.getElementById('spectator-banner');
-  const btnStart = document.getElementById('btn-start');
-  if (banner) banner.style.display = 'none';
-  if (btnStart) { updateSetup(); } // re-evaluate button state
+  document.getElementById('overlay-spectator')?.classList.remove('show');
+  updateSetup();
 }
 
 function startGame() {
@@ -1097,8 +1120,9 @@ function finishGame(sorted) {
       </div>`;
   });
   document.getElementById('modal-results').innerHTML = html;
-  document.getElementById('overlay').classList.add('show');
   state.active = false;
+  syncToFirebase(); // rimuove liveGame dal Firebase
+  document.getElementById('overlay').classList.add('show');
 }
 
 function closeModal() {
@@ -1114,6 +1138,7 @@ function newGame() {
 function confirmAbandon() {
   customConfirm('Abbandonare la partita? I dati del round corrente verranno persi.', () => {
     state.active = false;
+    syncToFirebase(); // rimuove liveGame
     showPage('setup');
   }, 'Abbandona');
 }
@@ -1449,11 +1474,14 @@ function showNotification(msg) {
 }
 
 // ---- INIT ----
-// Wait for Firebase before rendering roster (will be populated by onSnapshot)
 window.addEventListener('firebase-ready', () => {
-  // Firebase is ready, room login will populate data
+  const savedRoom = localStorage.getItem('cardgame_room');
+  if (savedRoom) {
+    document.getElementById('room-code-input').value = savedRoom;
+    joinRoom();
+  }
 });
-renderRoster(); // shows empty state until room is joined
+renderRoster();
 
 // Blocca zoom pinch (due dita) su tutti i browser mobile
 document.addEventListener('touchstart', function(e) {
