@@ -300,6 +300,12 @@
 
 <!-- SETUP PAGE NEW -->
 <div class="page active" id="page-setup">
+  <!-- Spectator banner shown when another device is playing -->
+  <div id="spectator-banner" style="display:none;background:var(--felt);border:1px solid var(--gold);border-radius:12px;padding:20px 24px;margin-bottom:24px;text-align:center;">
+    <div style="font-family:'Cinzel',serif;font-size:0.75rem;color:var(--gold);letter-spacing:3px;margin-bottom:16px;">● PARTITA IN CORSO</div>
+    <div id="spectator-scoreboard" style="display:grid;gap:8px;margin-bottom:16px;"></div>
+    <div style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--muted);">Aspetta la fine della partita per iniziarne una nuova</div>
+  </div>
   <div class="setup-header">
     <h2>Nuova Partita</h2>
     <p>Seleziona chi gioca stasera</p>
@@ -566,10 +572,19 @@ async function joinRoom() {
       history = data.history || [];
       roster = data.roster || [];
       currentSession = data.session || null;
+      const liveGame = data.liveGame || null;
+
       const activePage = document.querySelector('.page.active')?.id;
       if (activePage === 'page-history') renderHistory();
       if (activePage === 'page-session') renderSession();
       renderRoster();
+
+      // Se c'è una partita in corso avviata da qualcun altro
+      if (liveGame && liveGame.active && !state.active) {
+        renderLiveSpectator(liveGame);
+      } else if (!liveGame && !state.active) {
+        hideLiveSpectator();
+      }
     });
 
   } catch(e) {
@@ -584,8 +599,13 @@ async function syncToFirebase() {
   if (!currentRoom || !window._firebaseReady) return;
   try {
     const { doc, updateDoc } = window._fsLib;
+    const liveGame = state.active ? {
+      active: true,
+      round: state.round,
+      players: state.players.map(p => ({ name: p.name, total: p.total, scores: p.scores }))
+    } : null;
     await updateDoc(doc(window._db, 'rooms', currentRoom), {
-      history, roster, session: currentSession
+      history, roster, session: currentSession, liveGame
     });
   } catch(e) { console.error('Sync error:', e); }
 }
@@ -695,10 +715,39 @@ function updateSetup() {
   preview.innerHTML = html;
 }
 
+function renderLiveSpectator(liveGame) {
+  const banner = document.getElementById('spectator-banner');
+  const sb = document.getElementById('spectator-scoreboard');
+  const btnStart = document.getElementById('btn-start');
+  if (!banner) return;
+
+  banner.style.display = 'block';
+  if (btnStart) { btnStart.disabled = true; btnStart.textContent = 'Partita in corso...'; }
+
+  const sorted = [...liveGame.players].sort((a, b) => a.total - b.total);
+  sb.innerHTML = sorted.map((p, i) => `
+    <div style="display:flex;justify-content:space-between;align-items:center;
+      background:var(--felt2);border:1px solid var(--border2);border-radius:8px;padding:10px 16px;">
+      <span style="font-family:'Cinzel',serif;font-size:0.82rem;color:var(--gold);margin-right:12px;">${i+1}</span>
+      <span style="flex:1;font-size:0.95rem;">${p.name}</span>
+      <span style="font-family:'Cinzel',serif;font-size:1rem;font-weight:700;
+        color:${p.total >= 80 ? 'var(--red2)' : 'var(--text)'};">${p.total}</span>
+    </div>`).join('');
+
+  // Switch to setup page to show the banner
+  if (document.querySelector('.page.active')?.id !== 'page-game') showPage('setup');
+}
+
+function hideLiveSpectator() {
+  const banner = document.getElementById('spectator-banner');
+  const btnStart = document.getElementById('btn-start');
+  if (banner) banner.style.display = 'none';
+  if (btnStart) { updateSetup(); } // re-evaluate button state
+}
+
 function startGame() {
   const names = [...selectedPlayers];
   if (names.length < 2) return;
-  // Avvia sessione automaticamente se non c'è una attiva
   if (!currentSession) {
     const now = new Date();
     currentSession = {
@@ -713,6 +762,7 @@ function startGame() {
   state.round = 1;
   state.active = true;
   state.startTime = Date.now();
+  syncToFirebase(); // pubblica liveGame
   showPage('game');
   renderGame();
 }
@@ -880,6 +930,7 @@ function commitRound() {
     }
   });
   state.round++;
+  syncToFirebase(); // aggiorna punteggi live
 
   // Check loser (chi ha SUPERATO 100, non chi è arrivato a 100)
   if (state.players.some(p => p.total > 100)) {
