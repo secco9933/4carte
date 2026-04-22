@@ -437,15 +437,8 @@
     <div style="text-align:center;font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--muted);letter-spacing:1px;">
       IN ATTESA DELLA FINE DELLA PARTITA...
     </div>
-    <div style="margin-top:16px;">
-      <div class="round-in-progress" style="margin-bottom:0;">
-        <div class="rip-cards">
-          <div class="rip-card c1">♠</div>
-          <div class="rip-card c2">♥</div>
-          <div class="rip-card c3">♦</div>
-          <div class="rip-card c4">♣</div>
-        </div>
-      </div>
+    <div style="margin-top:16px;text-align:center;">
+      <button class="btn-back-tossico" onclick="forceEndLiveGame()">⚠ La partita è bloccata? Forza la chiusura</button>
     </div>
   </div>
 </div>
@@ -605,9 +598,26 @@ async function joinRoom() {
       if (activePage === 'page-session') renderSession();
       renderRoster();
 
-      // Se c'è una partita in corso avviata da qualcun altro
-      if (liveGame && liveGame.active && !state.active) {
-        renderLiveSpectator(liveGame);
+      if (liveGame && liveGame.active) {
+        if (liveGame.adminDevice === deviceId && !state.active) {
+          // Sono l'admin — ripristino la partita dopo un refresh
+          state.players = liveGame.players.map(p => ({
+            name: p.name, total: p.total, scores: p.scores || [],
+            closures: p.closures || 0, resetCount: p.resetCount || 0
+          }));
+          state.round = liveGame.round;
+          state.startTime = liveGame.startTime;
+          state.active = true;
+          roundCloser = liveGame.roundCloser || null;
+          roundScores = liveGame.roundScores || [];
+          scoreStep = liveGame.scoreStep || 0;
+          showPage('game');
+          renderGame();
+          showNotification('Partita ripristinata ✓');
+        } else if (liveGame.adminDevice !== deviceId) {
+          // Sono uno spettatore
+          renderLiveSpectator(liveGame);
+        }
       } else if (!liveGame && !state.active) {
         hideLiveSpectator();
       }
@@ -621,14 +631,29 @@ async function joinRoom() {
   btn.textContent = 'Entra nella Stanza';
 }
 
+// Genera o recupera un ID univoco per questo dispositivo
+let deviceId = localStorage.getItem('cardgame_device');
+if (!deviceId) {
+  deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
+  localStorage.setItem('cardgame_device', deviceId);
+}
+
 async function syncToFirebase() {
   if (!currentRoom || !window._firebaseReady) return;
   try {
     const { doc, updateDoc } = window._fsLib;
     const liveGame = state.active ? {
       active: true,
+      adminDevice: deviceId,
       round: state.round,
-      players: state.players.map(p => ({ name: p.name, total: p.total, scores: p.scores }))
+      roundCloser,
+      roundScores,
+      scoreStep,
+      startTime: state.startTime,
+      players: state.players.map(p => ({
+        name: p.name, total: p.total, scores: p.scores,
+        closures: p.closures || 0, resetCount: p.resetCount || 0
+      }))
     } : null;
     await updateDoc(doc(window._db, 'rooms', currentRoom), {
       history, roster, session: currentSession, liveGame
@@ -773,6 +798,15 @@ function renderLiveSpectator(liveGame) {
 function hideLiveSpectator() {
   document.getElementById('overlay-spectator')?.classList.remove('show');
   updateSetup();
+}
+
+async function forceEndLiveGame() {
+  if (!currentRoom || !window._firebaseReady) return;
+  try {
+    const { doc, updateDoc } = window._fsLib;
+    await updateDoc(doc(window._db, 'rooms', currentRoom), { liveGame: null });
+    showNotification('Partita chiusa forzatamente');
+  } catch(e) { console.error(e); }
 }
 
 function startGame() {
