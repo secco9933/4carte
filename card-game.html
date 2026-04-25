@@ -57,7 +57,7 @@
   .tab-btn.active { border-color: var(--gold); color: var(--gold); background: rgba(212,168,67,0.08); }
   .tab-btn:hover:not(.active) { color: var(--text); border-color: var(--border2); }
   #room-indicator {
-    position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+    position: fixed; bottom: 20px; right: 16px;
     font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--gold);
     letter-spacing: 1px; display: none; white-space: nowrap;
     background: rgba(5,14,7,0.95); border: 1px solid var(--gold);
@@ -296,7 +296,6 @@
     ♠ 4 Carte
     <span>tracker</span>
   </div>
-  <div id="room-indicator">● <span id="room-indicator-code"></span></div>
   <div class="nav-tabs">
     <button class="tab-btn active" onclick="showPage('setup')">Nuova</button>
     <button class="tab-btn" id="tab-game" onclick="showPage('game')">Partita</button>
@@ -304,6 +303,7 @@
     <button class="tab-btn" onclick="showPage('history')">Storico</button>
   </div>
 </nav>
+<div id="room-indicator">● <span id="room-indicator-code"></span></div>
 
 <!-- SETUP PAGE NEW -->
 <div class="page active" id="page-setup">
