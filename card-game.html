@@ -595,7 +595,7 @@ async function joinRoom() {
       renderRoster();
 
       if (liveGame && liveGame.active) {
-        if (liveGame.adminDevice === deviceId && !state.active) {
+        if (liveGame.adminDevice === deviceId && !state.active && !gameJustFinished) {
           // Sono l'admin — ripristino la partita dopo un refresh
           state.players = liveGame.players.map(p => ({
             name: p.name, total: p.total, scores: p.scores || [],
@@ -633,6 +633,7 @@ if (!deviceId) {
   deviceId = 'dev_' + Math.random().toString(36).substr(2, 9) + '_' + Date.now();
   localStorage.setItem('cardgame_device', deviceId);
 }
+let gameJustFinished = false; // previene il ripristino dopo fine partita regolare
 
 async function syncToFirebase() {
   if (!currentRoom || !window._firebaseReady) return;
@@ -834,6 +835,7 @@ function startGame() {
   state.round = 1;
   state.active = true;
   state.startTime = Date.now();
+  gameJustFinished = false;
   syncToFirebase(); // pubblica liveGame
   showPage('game');
   renderGame();
@@ -1170,6 +1172,7 @@ function finishGame(sorted) {
   });
   document.getElementById('modal-results').innerHTML = html;
   state.active = false;
+  gameJustFinished = true;
   syncToFirebase(); // rimuove liveGame dal Firebase
   document.getElementById('overlay').classList.add('show');
 }
@@ -1187,7 +1190,8 @@ function newGame() {
 function confirmAbandon() {
   customConfirm('Abbandonare la partita? I dati del round corrente verranno persi.', () => {
     state.active = false;
-    syncToFirebase(); // rimuove liveGame
+    gameJustFinished = true;
+    syncToFirebase();
     showPage('setup');
   }, 'Abbandona');
 }
@@ -1232,6 +1236,18 @@ function renderHistory() {
   const topEarner = [...entries].sort((a,b) => b[1].money - a[1].money)[0];
   const totalRounds = history.reduce((a, g) => a + (g.rounds || 0), 0);
 
+  // Record punteggio singolo round
+  let bestRound = { score: 0, name: '—' };
+  history.forEach(game => {
+    game.players.forEach(p => {
+      if (p.roundScores) {
+        p.roundScores.forEach(s => {
+          if (s > bestRound.score) bestRound = { score: s, name: p.name };
+        });
+      }
+    });
+  });
+
   // ---- Global summary cards ----
   let html = `
     <div class="stats-grid">
@@ -1252,6 +1268,11 @@ function renderHistory() {
         <div class="slabel">Il più ricco</div>
         <div class="svalue" style="color:var(--green)">${topEarner[1].money >= 0 ? '+' : ''}€${topEarner[1].money}</div>
         <div class="sname">${topEarner[0]}</div>
+      </div>
+      <div class="stat-card">
+        <div class="slabel">Record round 🏆</div>
+        <div class="svalue" style="color:var(--red2)">${bestRound.score}</div>
+        <div class="sname">${bestRound.name}</div>
       </div>
     </div>`;
 
@@ -1293,7 +1314,7 @@ function renderHistory() {
 
   // ---- Past games ----
   html += '<div class="past-games"><h3>Partite recenti</h3>';
-  history.forEach(game => {
+  history.forEach((game, gi) => {
     const winner = game.players[0];
     const roundsLabel = game.rounds ? ` · ${game.rounds} round` : '';
     html += `
@@ -1301,6 +1322,7 @@ function renderHistory() {
         <div class="game-card-header">
           <span class="gdate">${game.date}${roundsLabel}</span>
           <span class="gwinner">🥇 ${winner.name}</span>
+          <button onclick="deleteGame(${gi})" style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red2);border-radius:4px;padding:2px 7px;font-size:0.7rem;cursor:pointer;flex-shrink:0;line-height:1.4;" title="Elimina partita">✕</button>
         </div>
         <div class="game-players">`;
     game.players.forEach(p => {
@@ -1368,6 +1390,15 @@ function renderStatsBody() {
         <span class="st-val ${mc}">${ml}</span>
       </div>`;
   }).join('');
+}
+
+function deleteGame(idx) {
+  customConfirm('Eliminare questa partita dallo storico?', () => {
+    history.splice(idx, 1);
+    syncToFirebase();
+    renderHistory();
+    showNotification('Partita eliminata');
+  }, 'Elimina');
 }
 
 function confirmClearHistory() {
@@ -1486,6 +1517,7 @@ function renderSession() {
         <div class="sgr-header">
           <span class="sgr-num">Partita ${i + 1}</span>
           <span class="sgr-rounds">${game.rounds || 0} round${game.duration !== undefined ? ` · ${game.duration} min` : ''}</span>
+          <button onclick="deleteSessionGame(${i})" style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red2);border-radius:4px;padding:2px 7px;font-size:0.7rem;cursor:pointer;flex-shrink:0;line-height:1.4;" title="Elimina partita">✕</button>
         </div>
         <div class="game-players">`;
     game.players.forEach(p => {
@@ -1499,6 +1531,23 @@ function renderSession() {
   html += `</div>`;
 
   cont.innerHTML = html;
+}
+
+function deleteSessionGame(idx) {
+  customConfirm('Eliminare questa partita dalla sessione e dallo storico?', () => {
+    if (!currentSession) return;
+    const game = currentSession.games[idx];
+    // Rimuovi dalla sessione
+    currentSession.games.splice(idx, 1);
+    // Rimuovi anche dallo storico globale (cerca per timestamp)
+    if (game && game.timestamp) {
+      const hi = history.findIndex(h => h.timestamp === game.timestamp);
+      if (hi !== -1) history.splice(hi, 1);
+    }
+    syncToFirebase();
+    renderSession();
+    showNotification('Partita eliminata');
+  }, 'Elimina');
 }
 
 // ---- NAV ----
