@@ -263,6 +263,29 @@
 
   .divider { border: none; border-top: 1px solid var(--border2); margin: 24px 0; }
 
+  /* PROFILE */
+  .profile-avatar-big { font-size: 3rem; text-align: center; margin-bottom: 4px; line-height: 1; }
+  .profile-name-big { font-family: 'Cinzel', serif; font-size: 1.4rem; text-align: center; margin-bottom: 4px; letter-spacing: 2px; }
+  .profile-unclaimed { text-align:center; font-family:'DM Mono',monospace; font-size:0.72rem; color:var(--muted); margin-bottom:20px; }
+  .avatar-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 16px 0; }
+  .avatar-option { font-size: 1.6rem; text-align: center; padding: 8px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: all 0.15s; }
+  .avatar-option:hover { background: rgba(212,168,67,0.1); border-color: var(--gold); }
+  .avatar-option.selected { background: rgba(212,168,67,0.15); border-color: var(--gold); box-shadow: 0 0 10px rgba(212,168,67,0.2); }
+  .color-grid { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
+  .color-option { width: 32px; height: 32px; border-radius: 50%; cursor: pointer; border: 3px solid transparent; transition: all 0.15s; }
+  .color-option.selected { border-color: white; transform: scale(1.15); }
+  .pin-input {
+    width: 100%; background: rgba(0,0,0,0.4); border: 2px solid var(--border2); color: var(--text);
+    padding: 14px; border-radius: 8px; font-family: 'Cinzel', serif; font-size: 1.8rem;
+    text-align: center; outline: none; letter-spacing: 8px; transition: border-color 0.2s;
+    -webkit-text-security: disc;
+  }
+  .pin-input:focus { border-color: var(--gold); }
+  .profile-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0; }
+  .profile-stat { background: var(--felt2); border: 1px solid var(--border2); border-radius: 8px; padding: 12px 14px; text-align: center; }
+  .profile-stat .ps-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--muted); letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+  .profile-stat .ps-value { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--gold2); }
+
   /* SESSION PAGE */
   .session-badge { display: inline-flex; align-items: center; gap: 8px; background: rgba(57,255,154,0.08); border: 1px solid rgba(57,255,154,0.3); border-radius: 20px; padding: 4px 14px; font-family: 'DM Mono', monospace; font-size: 0.72rem; color: var(--neon); letter-spacing: 1px; margin-bottom: 20px; }
   .session-badge::before { content: '●'; font-size: 0.5rem; animation: ripPulse 1.5s ease-in-out infinite; }
@@ -422,6 +445,13 @@
   <div id="history-content"></div>
 </div>
 
+<!-- PROFILE MODAL -->
+<div class="overlay" id="overlay-profile">
+  <div class="modal" style="max-width:420px;">
+    <div id="profile-content"></div>
+  </div>
+</div>
+
 <!-- LIVE SPECTATOR OVERLAY -->
 <div class="overlay" id="overlay-spectator" style="z-index:150;flex-direction:column;padding:0;">
   <div style="width:100%;max-width:540px;padding:28px 20px;">
@@ -496,6 +526,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-app.js";
 import { getFirestore, doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore.js";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-storage.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD4Efz5cWbBFZ13ajRKEAfXMAujce4Hmuw",
@@ -508,10 +539,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
-// Expose to global scope so non-module script can use it
 window._db = db;
+window._storage = storage;
 window._fsLib = { doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion };
+window._storageLib = { ref, uploadBytes, getDownloadURL };
 window._firebaseReady = true;
 window.dispatchEvent(new Event('firebase-ready'));
 </script>
@@ -528,6 +561,7 @@ let history = [];
 let roster = [];
 let selectedPlayers = new Set();
 let currentSession = null;
+let profiles = {}; // { "NomeGiocatore": { pin, avatar, color } }
 
 function saveRoster() {
   syncToFirebase();
@@ -587,6 +621,7 @@ async function joinRoom() {
       history = data.history || [];
       roster = data.roster || [];
       currentSession = data.session || null;
+      profiles = data.profiles || {};
       const liveGame = data.liveGame || null;
 
       const activePage = document.querySelector('.page.active')?.id;
@@ -653,7 +688,7 @@ async function syncToFirebase() {
       }))
     } : null;
     await updateDoc(doc(window._db, 'rooms', currentRoom), {
-      history, roster, session: currentSession, liveGame
+      history, roster, session: currentSession, liveGame, profiles
     });
   } catch(e) { console.error('Sync error:', e); }
 }
@@ -687,9 +722,17 @@ function renderRoster() {
     grid.innerHTML = '<div style="color:var(--muted);font-family:\'DM Mono\',monospace;font-size:0.8rem;padding:8px 0;grid-column:1/-1;">Nessun giocatore salvato. Aggiungine uno!</div>';
   } else {
     grid.innerHTML = roster.map((p, i) => {
+      const prof = profiles[p.name];
+      const avatar = prof?.avatar || '♠';
+      const color  = prof?.color  || 'var(--muted)';
+      const photo  = prof?.photoURL;
       const sel = selectedPlayers.has(p.name);
+      const avatarEl = photo
+        ? `<img src="${photo}" style="width:28px;height:28px;border-radius:50%;object-fit:cover;flex-shrink:0;">`
+        : `<span style="color:${color};font-size:1.1rem;flex-shrink:0;">${avatar}</span>`;
       return `
         <div class="roster-chip ${sel ? 'selected' : ''}" onclick="togglePlayer('${escName(p.name)}')">
+          ${avatarEl}
           <span class="chip-name">${p.name}</span>
           <div class="chip-check">${sel ? '✓' : ''}</div>
           <button class="chip-del" onclick="deleteRosterPlayer(event, ${i})" title="Rimuovi">✕</button>
@@ -1372,14 +1415,17 @@ function renderStatsBody() {
 
   const medals = ['🥇','🥈','🥉'];
   body.innerHTML = sorted.map((s, i) => {
+    const p = profiles[s.name];
+    const avatar = p?.avatar || '';
+    const color  = p?.color  || 'var(--text)';
     const avgRoundDisplay = s.avgRound >= 0 ? s.avgRound.toFixed(1) : '—';
     const avgFinalDisplay = s.avgFinal >= 0 ? s.avgFinal.toFixed(1) : '—';
     const mc = s.money > 0 ? 'pos' : s.money < 0 ? 'neg' : '';
     const ml = s.money > 0 ? `+€${s.money}` : `€${s.money}`;
     const medal = medals[i] || `${i+1}`;
     return `
-      <div class="st-row">
-        <span class="st-name"><span class="st-medal">${medal}</span>${s.name}</span>
+      <div class="st-row" onclick="openProfile('${s.name}')" style="cursor:pointer;">
+        <span class="st-name"><span class="st-medal">${medal}</span><span style="color:${color}">${avatar} ${s.name}</span></span>
         <span class="st-val">${s.games}</span>
         <span class="st-val">${s.wins}</span>
         <span class="st-val ${s.losses > 0 ? 'neg' : ''}">${s.losses}</span>
@@ -1550,7 +1596,232 @@ function deleteSessionGame(idx) {
   }, 'Elimina');
 }
 
-// ---- NAV ----
+// ---- PROFILES ----
+const AVATARS = ['♠','♥','♦','♣','🃏','🎴','👑','💰','🎰','🎲','🤑','😎','🔥','💎','⚡','🏆','🦁','🐯','🦊','🐺','🎭','🌙'];
+const COLORS  = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63','#ffffff','#f39c12'];
+
+let profileEditName = null; // nome del giocatore in editing
+let profileSelectedAvatar = null;
+let profileSelectedColor = null;
+
+function openProfile(name) {
+  profileEditName = name;
+  const p = profiles[name];
+  profileSelectedAvatar = p?.avatar || '♠';
+  profileSelectedColor  = p?.color  || '#d4a843';
+  renderProfileModal(name, 'view');
+  document.getElementById('overlay-profile').classList.add('show');
+}
+
+function closeProfile() {
+  document.getElementById('overlay-profile').classList.remove('show');
+  profileEditName = null;
+}
+
+function renderProfileModal(name, mode) {
+  const p = profiles[name];
+  const cont = document.getElementById('profile-content');
+
+  // Calc stats for this player
+  let wins=0, losses=0, games=0, money=0, totalRounds=0, sumPts=0;
+  history.forEach(g => {
+    const pl = g.players.find(x => x.name === name);
+    if (!pl) return;
+    games++;
+    money += pl.money;
+    if (pl.position === 1) wins++;
+    if (pl.position === g.players.length) losses++;
+    if (pl.roundScores) { totalRounds += pl.roundScores.length; sumPts += pl.roundScores.reduce((a,b)=>a+b,0); }
+  });
+  const avgRound = totalRounds > 0 ? (sumPts/totalRounds).toFixed(1) : '—';
+  const avatar = p?.avatar || '♠';
+  const color  = p?.color  || '#d4a843';
+  const claimed = !!p?.pin;
+
+  if (mode === 'view') {
+    const photoURL = p?.photoURL;
+    const avatarDisplay = photoURL
+      ? `<img src="${photoURL}" style="width:80px;height:80px;border-radius:50%;object-fit:cover;border:3px solid ${color};display:block;margin:0 auto 8px;">`
+      : `<div class="profile-avatar-big" style="color:${color}">${avatar}</div>`;
+    cont.innerHTML = `
+      ${avatarDisplay}
+      <div class="profile-name-big" style="color:${color}">${name}</div>
+      <div class="profile-unclaimed">${claimed ? '● Profilo rivendicato' : '○ Profilo non rivendicato'}</div>
+      <div class="profile-stat-grid">
+        <div class="profile-stat"><div class="ps-label">Partite</div><div class="ps-value">${games}</div></div>
+        <div class="profile-stat"><div class="ps-label">Vittorie</div><div class="ps-value">${wins}</div></div>
+        <div class="profile-stat"><div class="ps-label">Sconfitte</div><div class="ps-value">${losses}</div></div>
+        <div class="profile-stat"><div class="ps-label">Saldo</div><div class="ps-value" style="color:${money>=0?'var(--neon)':'var(--red2)'}">${money>=0?'+':''}€${money}</div></div>
+        <div class="profile-stat"><div class="ps-label">Media/round</div><div class="ps-value">${avgRound}</div></div>
+        <div class="profile-stat"><div class="ps-label">Round giocati</div><div class="ps-value">${totalRounds}</div></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:8px;">
+        <button class="btn-secondary" onclick="closeProfile()">Chiudi</button>
+        ${claimed
+          ? `<button class="btn-confirm" style="flex:1" onclick="renderProfileModal('${name}','pin_edit')">✏️ Modifica</button>`
+          : `<button class="btn-primary" style="flex:1;margin-top:0;" onclick="renderProfileModal('${name}','claim')">Rivendica profilo</button>`
+        }
+      </div>`;
+  }
+
+  else if (mode === 'claim') {
+    cont.innerHTML = `
+      <div class="profile-name-big" style="margin-bottom:20px;">Rivendica "${name}"</div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:12px;letter-spacing:1px;">FOTO PROFILO (opzionale)</p>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:16px;">
+        <div id="photo-preview" style="width:80px;height:80px;border-radius:50%;border:2px solid var(--border2);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--felt2);">${profileSelectedAvatar}</div>
+        <label style="cursor:pointer;background:rgba(212,168,67,0.1);border:1px solid var(--gold);color:var(--gold);padding:7px 16px;border-radius:6px;font-family:'Cinzel',serif;font-size:0.72rem;letter-spacing:1px;">
+          📷 Carica foto
+          <input type="file" id="photo-input" accept="image/*" style="display:none;" onchange="previewPhoto(this)">
+        </label>
+      </div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:12px;letter-spacing:1px;">O SCEGLI UN AVATAR</p>
+      <div class="avatar-grid" id="avatar-grid">${AVATARS.map(a=>`<div class="avatar-option${a===profileSelectedAvatar?' selected':''}" onclick="selectAvatar('${a}')">${a}</div>`).join('')}</div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:10px;letter-spacing:1px;">SCEGLI IL TUO COLORE</p>
+      <div class="color-grid" id="color-grid">${COLORS.map(c=>`<div class="color-option${c===profileSelectedColor?' selected':''}" style="background:${c}" onclick="selectColor('${c}')"></div>`).join('')}</div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin:16px 0 8px;letter-spacing:1px;">IMPOSTA UN PIN (4 CIFRE)</p>
+      <input class="pin-input" type="tel" id="pin-input" maxlength="4" placeholder="••••" inputmode="numeric">
+      <div id="pin-error" style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--red2);text-align:center;min-height:20px;margin-top:6px;"></div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn-secondary" onclick="renderProfileModal('${name}','view')">← Indietro</button>
+        <button class="btn-primary" style="flex:1;margin-top:0;" id="btn-claim-confirm" onclick="claimProfile('${name}')">Conferma</button>
+      </div>`;
+  }
+
+  else if (mode === 'pin_edit') {
+    cont.innerHTML = `
+      <div class="profile-name-big" style="margin-bottom:8px;">${avatar} ${name}</div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:16px;letter-spacing:1px;">INSERISCI IL TUO PIN</p>
+      <input class="pin-input" type="tel" id="pin-input" maxlength="4" placeholder="••••" inputmode="numeric" onkeydown="if(event.key==='Enter')verifyPin('${name}')">
+      <div id="pin-error" style="font-family:'DM Mono',monospace;font-size:0.72rem;color:var(--red2);text-align:center;min-height:20px;margin-top:6px;"></div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn-secondary" onclick="renderProfileModal('${name}','view')">← Indietro</button>
+        <button class="btn-primary" style="flex:1;margin-top:0;" onclick="verifyPin('${name}')">Entra</button>
+      </div>`;
+    setTimeout(() => document.getElementById('pin-input')?.focus(), 80);
+  }
+
+  else if (mode === 'edit') {
+    const p = profiles[name];
+    const currentPhoto = p?.photoURL;
+    cont.innerHTML = `
+      <div class="profile-name-big" style="margin-bottom:20px;">Modifica "${name}"</div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:16px;">
+        <div id="photo-preview" style="width:80px;height:80px;border-radius:50%;border:2px solid var(--border2);overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:2rem;background:var(--felt2);">
+          ${currentPhoto ? `<img src="${currentPhoto}" style="width:100%;height:100%;object-fit:cover;">` : profileSelectedAvatar}
+        </div>
+        <label style="cursor:pointer;background:rgba(212,168,67,0.1);border:1px solid var(--gold);color:var(--gold);padding:7px 16px;border-radius:6px;font-family:'Cinzel',serif;font-size:0.72rem;letter-spacing:1px;">
+          📷 Cambia foto
+          <input type="file" id="photo-input" accept="image/*" style="display:none;" onchange="previewPhoto(this)">
+        </label>
+      </div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:12px;letter-spacing:1px;">AVATAR</p>
+      <div class="avatar-grid" id="avatar-grid">${AVATARS.map(a=>`<div class="avatar-option${a===profileSelectedAvatar?' selected':''}" onclick="selectAvatar('${a}')">${a}</div>`).join('')}</div>
+      <p style="font-family:'DM Mono',monospace;font-size:0.75rem;color:var(--muted);text-align:center;margin-bottom:10px;letter-spacing:1px;">COLORE</p>
+      <div class="color-grid" id="color-grid">${COLORS.map(c=>`<div class="color-option${c===profileSelectedColor?' selected':''}" style="background:${c}" onclick="selectColor('${c}')"></div>`).join('')}</div>
+      <div style="display:flex;gap:10px;margin-top:20px;">
+        <button class="btn-secondary" onclick="renderProfileModal('${name}','view')">← Indietro</button>
+        <button class="btn-primary" style="flex:1;margin-top:0;" id="btn-save-profile" onclick="saveProfile('${name}')">Salva</button>
+      </div>`;
+  }
+}
+
+function selectAvatar(a) {
+  profileSelectedAvatar = a;
+  document.querySelectorAll('.avatar-option').forEach(el => el.classList.toggle('selected', el.textContent === a));
+}
+
+function selectColor(c) {
+  profileSelectedColor = c;
+  document.querySelectorAll('.color-option').forEach(el => el.classList.toggle('selected', el.style.background === c));
+}
+
+let profilePhotoFile = null; // file selezionato per upload
+
+function previewPhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  profilePhotoFile = file;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const preview = document.getElementById('photo-preview');
+    if (preview) preview.innerHTML = `<img src="${e.target.result}" style="width:100%;height:100%;object-fit:cover;">`;
+    // Deseleziona avatar se si sceglie foto
+    document.querySelectorAll('.avatar-option').forEach(el => el.classList.remove('selected'));
+  };
+  reader.readAsDataURL(file);
+}
+
+async function uploadPhoto(name) {
+  if (!profilePhotoFile || !window._firebaseReady) return null;
+  try {
+    const { ref, uploadBytes, getDownloadURL } = window._storageLib;
+    const storageRef = ref(window._storage, `avatars/${name}_${Date.now()}`);
+    // Comprimi l'immagine prima dell'upload
+    const compressed = await compressImage(profilePhotoFile, 200, 200);
+    await uploadBytes(storageRef, compressed);
+    return await getDownloadURL(storageRef);
+  } catch(e) {
+    console.error('Upload error:', e);
+    return null;
+  }
+}
+
+function compressImage(file, maxW, maxH) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > maxW) { h = h * maxW / w; w = maxW; } }
+      else { if (h > maxH) { w = w * maxH / h; h = maxH; } }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(blob => resolve(blob), 'image/jpeg', 0.8);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
+  });
+}
+
+async function claimProfile(name) {
+  const pin = document.getElementById('pin-input')?.value;
+  const errEl = document.getElementById('pin-error');
+  const btn = document.getElementById('btn-claim-confirm');
+  if (!pin || pin.length !== 4 || !/^\d{4}$/.test(pin)) {
+    errEl.textContent = 'Il PIN deve essere di 4 cifre numeriche';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio...'; }
+  const photoURL = await uploadPhoto(name);
+  profiles[name] = {
+    pin,
+    avatar: profileSelectedAvatar,
+    color: profileSelectedColor,
+    ...(photoURL && { photoURL })
+  };
+  profilePhotoFile = null;
+  syncToFirebase();
+  showNotification('Profilo rivendicato! ✓');
+  renderProfileModal(name, 'view');
+}
+
+async function saveProfile(name) {
+  const btn = document.getElementById('btn-save-profile');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvataggio...'; }
+  const photoURL = profilePhotoFile ? await uploadPhoto(name) : profiles[name]?.photoURL;
+  profiles[name] = {
+    ...profiles[name],
+    avatar: profileSelectedAvatar,
+    color: profileSelectedColor,
+    ...(photoURL && { photoURL })
+  };
+  profilePhotoFile = null;
+  syncToFirebase();
+  showNotification('Profilo aggiornato ✓');
+  renderProfileModal(name, 'view');
+}
 function showPage(id) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
