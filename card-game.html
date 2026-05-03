@@ -1736,6 +1736,21 @@ function selectColor(c) {
   document.querySelectorAll('.color-option').forEach(el => el.classList.toggle('selected', el.style.background === c));
 }
 
+function verifyPin(name) {
+  const pin = document.getElementById('pin-input')?.value;
+  const errEl = document.getElementById('pin-error');
+  if (profiles[name]?.pin === pin) {
+    profileSelectedAvatar = profiles[name]?.avatar || '♠';
+    profileSelectedColor  = profiles[name]?.color  || '#d4a843';
+    profilePhotoFile = null;
+    renderProfileModal(name, 'edit');
+  } else {
+    if (errEl) errEl.textContent = 'PIN errato';
+    document.getElementById('pin-input').value = '';
+    document.getElementById('pin-input').focus();
+  }
+}
+
 let profilePhotoFile = null; // file selezionato per upload
 
 function previewPhoto(input) {
