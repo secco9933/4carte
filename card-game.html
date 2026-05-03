@@ -1418,6 +1418,10 @@ function renderStatsBody() {
     const p = profiles[s.name];
     const avatar = p?.avatar || '';
     const color  = p?.color  || 'var(--text)';
+    const photo  = p?.photoURL;
+    const avatarEl = photo
+      ? `<img src="${photo}" style="width:22px;height:22px;border-radius:50%;object-fit:cover;vertical-align:middle;margin-right:4px;">`
+      : `<span style="color:${color}">${avatar} </span>`;
     const avgRoundDisplay = s.avgRound >= 0 ? s.avgRound.toFixed(1) : '—';
     const avgFinalDisplay = s.avgFinal >= 0 ? s.avgFinal.toFixed(1) : '—';
     const mc = s.money > 0 ? 'pos' : s.money < 0 ? 'neg' : '';
@@ -1425,7 +1429,7 @@ function renderStatsBody() {
     const medal = medals[i] || `${i+1}`;
     return `
       <div class="st-row" onclick="openProfile('${s.name}')" style="cursor:pointer;">
-        <span class="st-name"><span class="st-medal">${medal}</span><span style="color:${color}">${avatar} ${s.name}</span></span>
+        <span class="st-name"><span class="st-medal">${medal}</span>${avatarEl}<span style="color:${color}">${s.name}</span></span>
         <span class="st-val">${s.games}</span>
         <span class="st-val">${s.wins}</span>
         <span class="st-val ${s.losses > 0 ? 'neg' : ''}">${s.losses}</span>
