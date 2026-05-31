@@ -263,7 +263,14 @@
 
   .divider { border: none; border-top: 1px solid var(--border2); margin: 24px 0; }
 
-  /* PROFILE */
+  /* ROUND TABLE */
+  .round-table { width: 100%; border-collapse: collapse; font-family: 'DM Mono', monospace; font-size: 0.72rem; }
+  .round-table th { color: var(--muted); padding: 4px 8px; text-align: center; border-bottom: 1px solid var(--border2); white-space: nowrap; }
+  .round-table th:first-child { text-align: left; }
+  .round-table td { padding: 6px 8px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.04); }
+  .round-table td:first-child { text-align: left; }
+  .round-table tbody tr:last-child td { border-bottom: none; }
+  .round-table tbody tr:hover { background: rgba(255,255,255,0.03); }
   .profile-avatar-big { font-size: 3rem; text-align: center; margin-bottom: 4px; line-height: 1; }
   .profile-name-big { font-family: 'Cinzel', serif; font-size: 1.4rem; text-align: center; margin-bottom: 4px; letter-spacing: 2px; }
   .profile-unclaimed { text-align:center; font-family:'DM Mono',monospace; font-size:0.72rem; color:var(--muted); margin-bottom:20px; }
@@ -1355,17 +1362,46 @@ function renderHistory() {
     </div></div>
   </div>`;
 
+  // ---- Streak calculation ----
+  const streaks = {};
+  // Go through history oldest-first to compute streaks
+  [...history].reverse().forEach(game => {
+    game.players.forEach(p => {
+      if (!streaks[p.name]) streaks[p.name] = { count: 0, type: null };
+      const isWin = p.position === 1;
+      const isLoss = p.position === game.players.length;
+      const type = isWin ? 'win' : isLoss ? 'loss' : 'mid';
+      if (streaks[p.name].type === type) {
+        streaks[p.name].count++;
+      } else {
+        streaks[p.name] = { count: 1, type };
+      }
+    });
+  });
+
+  // ---- Money chart data ----
+  const chartPlayers = Object.keys(ps);
+  const chartData = {}; // { name: [cumulative money per game] }
+  chartPlayers.forEach(n => { chartData[n] = [0]; });
+  [...history].reverse().forEach(game => {
+    chartPlayers.forEach(n => {
+      const prev = chartData[n][chartData[n].length - 1];
+      const p = game.players.find(x => x.name === n);
+      chartData[n].push(prev + (p ? p.money : 0));
+    });
+  });
+
   // ---- Past games ----
   html += '<div class="past-games"><h3>Partite recenti</h3>';
   history.forEach((game, gi) => {
     const winner = game.players[0];
     const roundsLabel = game.rounds ? ` · ${game.rounds} round` : '';
     html += `
-      <div class="game-card">
+      <div class="game-card" onclick="toggleGameDetail(${gi})" style="cursor:pointer;">
         <div class="game-card-header">
           <span class="gdate">${game.date}${roundsLabel}</span>
           <span class="gwinner">🥇 ${winner.name}</span>
-          <button onclick="deleteGame(${gi})" style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red2);border-radius:4px;padding:2px 7px;font-size:0.7rem;cursor:pointer;flex-shrink:0;line-height:1.4;" title="Elimina partita">✕</button>
+          <button onclick="event.stopPropagation();deleteGame(${gi})" style="background:none;border:1px solid rgba(192,57,43,0.4);color:var(--red2);border-radius:4px;padding:2px 7px;font-size:0.7rem;cursor:pointer;flex-shrink:0;line-height:1.4;" title="Elimina partita">✕</button>
         </div>
         <div class="game-players">`;
     game.players.forEach(p => {
@@ -1374,12 +1410,148 @@ function renderHistory() {
       const cl = p.closures ? ` 🔒${p.closures}` : '';
       html += `<div class="game-player-chip">${p.name}${cl} <span class="chip-money ${mc}">${ml}</span></div>`;
     });
-    html += '</div></div>';
+    // Round-by-round detail (hidden by default)
+    const hasRounds = game.players.some(p => p.roundScores && p.roundScores.length > 0);
+    if (hasRounds) {
+      const numRounds = Math.max(...game.players.map(p => (p.roundScores||[]).length));
+      html += `</div><div class="game-detail" id="game-detail-${gi}" style="display:none;margin-top:14px;">
+        <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+        <table class="round-table">
+          <thead><tr><th>Giocatore</th>`;
+      for (let r = 0; r < numRounds; r++) html += `<th>R${r+1}</th>`;
+      html += `<th>Tot.</th></tr></thead><tbody>`;
+      [...game.players].sort((a,b) => a.total - b.total).forEach(p => {
+        html += `<tr><td style="font-weight:600;white-space:nowrap;">${p.name}</td>`;
+        let running = 0;
+        (p.roundScores||[]).forEach(s => {
+          running += s;
+          const hi = s >= 20 ? 'color:var(--red2);font-weight:700;' : '';
+          html += `<td style="${hi}">${s}</td>`;
+        });
+        html += `<td style="font-weight:700;color:var(--gold2);">${p.total}</td></tr>`;
+      });
+      html += `</tbody></table></div></div>`;
+    } else {
+      html += `</div>`;
+    }
+    html += `</div>`;
   });
   html += '</div>';
 
+  // ---- Money chart ----
+  if (history.length >= 2 && chartPlayers.length > 0) {
+    const CHART_COLORS = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
+    html += `<div class="past-games" style="margin-top:24px;">
+      <h3>Andamento saldo €</h3>
+      <canvas id="money-chart" style="width:100%;max-height:220px;"></canvas>
+    </div>`;
+  }
+
   cont.innerHTML = html;
   renderStatsBody();
+
+  // Add streak badges to table rows after render
+  document.querySelectorAll('.st-row').forEach(row => {
+    const nameEl = row.querySelector('.st-name span:last-child');
+    if (!nameEl) return;
+    const name = nameEl.textContent.trim();
+    const s = streaks[name];
+    if (s && s.count >= 2) {
+      const icon = s.type === 'win' ? '🔥' : s.type === 'loss' ? '💀' : '';
+      if (icon) {
+        const badge = document.createElement('span');
+        badge.style.cssText = 'font-size:0.75rem;margin-left:6px;opacity:0.9;';
+        badge.title = s.type === 'win' ? `${s.count} vittorie di fila!` : `${s.count} sconfitte di fila`;
+        badge.textContent = `${icon}${s.count}`;
+        nameEl.appendChild(badge);
+      }
+    }
+  });
+
+  // Draw money chart
+  const canvas = document.getElementById('money-chart');
+  if (canvas && history.length >= 2) {
+    const CHART_COLORS = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
+    const dpr = window.devicePixelRatio || 1;
+    const W = canvas.parentElement.clientWidth;
+    const H = 200;
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    const ctx = canvas.getContext('2d');
+    ctx.scale(dpr, dpr);
+
+    const pad = { top: 20, right: 20, bottom: 30, left: 40 };
+    const cw = W - pad.left - pad.right;
+    const ch = H - pad.top - pad.bottom;
+
+    // Find value range
+    let minV = 0, maxV = 0;
+    chartPlayers.forEach(n => {
+      chartData[n].forEach(v => { minV = Math.min(minV, v); maxV = Math.max(maxV, v); });
+    });
+    if (minV === maxV) { minV -= 5; maxV += 5; }
+    const range = maxV - minV;
+    const steps = chartData[chartPlayers[0]].length - 1;
+
+    const xPos = i => pad.left + (steps > 0 ? (i / steps) * cw : 0);
+    const yPos = v => pad.top + ch - ((v - minV) / range) * ch;
+
+    // Grid line at 0
+    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    const y0 = yPos(0);
+    ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + cw, y0); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // X axis labels
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = `${10}px DM Mono, monospace`;
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= steps; i++) {
+      if (i === 0) continue;
+      ctx.fillText(`P${i}`, xPos(i), H - 8);
+    }
+
+    // Y axis labels
+    ctx.textAlign = 'right';
+    [minV, 0, maxV].forEach(v => {
+      const y = yPos(v);
+      if (y < pad.top || y > pad.top + ch) return;
+      ctx.fillStyle = v === 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.25)';
+      ctx.fillText(`€${v}`, pad.left - 4, y + 3);
+    });
+
+    // Lines
+    chartPlayers.forEach((name, ni) => {
+      const color = profiles[name]?.color || CHART_COLORS[ni % CHART_COLORS.length];
+      const data = chartData[name];
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2.5;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      data.forEach((v, i) => {
+        if (i === 0) ctx.moveTo(xPos(i), yPos(v));
+        else ctx.lineTo(xPos(i), yPos(v));
+      });
+      ctx.stroke();
+
+      // Dot at last point
+      const last = data[data.length - 1];
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(xPos(data.length - 1), yPos(last), 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Name label
+      ctx.fillStyle = color;
+      ctx.font = `bold 10px DM Sans, sans-serif`;
+      ctx.textAlign = 'left';
+      ctx.fillText(name, xPos(data.length - 1) + 6, yPos(last) + 4);
+    });
+  }
 }
 
 let statsData = [];
@@ -1440,6 +1612,11 @@ function renderStatsBody() {
         <span class="st-val ${mc}">${ml}</span>
       </div>`;
   }).join('');
+}
+
+function toggleGameDetail(gi) {
+  const el = document.getElementById(`game-detail-${gi}`);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
 function deleteGame(idx) {
