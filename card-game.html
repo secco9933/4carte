@@ -1440,10 +1440,11 @@ function renderHistory() {
 
   // ---- Money chart ----
   if (history.length >= 2 && chartPlayers.length > 0) {
-    const CHART_COLORS = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
     html += `<div class="past-games" style="margin-top:24px;">
       <h3>Andamento saldo €</h3>
-      <canvas id="money-chart" style="width:100%;max-height:220px;"></canvas>
+      <div style="font-family:'DM Mono',monospace;font-size:0.68rem;color:var(--muted);margin-bottom:10px;letter-spacing:1px;">TOCCA UN NOME PER EVIDENZIARE</div>
+      <div id="chart-legend" style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;"></div>
+      <canvas id="money-chart" style="width:100%;display:block;"></canvas>
     </div>`;
   }
 
@@ -1471,86 +1472,116 @@ function renderHistory() {
   // Draw money chart
   const canvas = document.getElementById('money-chart');
   if (canvas && history.length >= 2) {
-    const CHART_COLORS = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
-    const dpr = window.devicePixelRatio || 1;
-    const W = canvas.parentElement.clientWidth;
-    const H = 200;
-    canvas.width = W * dpr;
-    canvas.height = H * dpr;
-    canvas.style.width = W + 'px';
-    canvas.style.height = H + 'px';
-    const ctx = canvas.getContext('2d');
-    ctx.scale(dpr, dpr);
+    const CHART_COLORS = ['#d4a843','#39ff9a','#e74c3c','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63','#00bcd4','#ff5722'];
+    let highlightedPlayer = null;
 
-    const pad = { top: 20, right: 20, bottom: 30, left: 40 };
-    const cw = W - pad.left - pad.right;
-    const ch = H - pad.top - pad.bottom;
+    function drawChart() {
+      const dpr = window.devicePixelRatio || 1;
+      const W = canvas.parentElement.clientWidth;
+      const H = 240;
+      canvas.width = W * dpr;
+      canvas.height = H * dpr;
+      canvas.style.width = W + 'px';
+      canvas.style.height = H + 'px';
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
 
-    // Find value range
-    let minV = 0, maxV = 0;
-    chartPlayers.forEach(n => {
-      chartData[n].forEach(v => { minV = Math.min(minV, v); maxV = Math.max(maxV, v); });
-    });
-    if (minV === maxV) { minV -= 5; maxV += 5; }
-    const range = maxV - minV;
-    const steps = chartData[chartPlayers[0]].length - 1;
+      const pad = { top: 16, right: 16, bottom: 28, left: 44 };
+      const cw = W - pad.left - pad.right;
+      const ch = H - pad.top - pad.bottom;
 
-    const xPos = i => pad.left + (steps > 0 ? (i / steps) * cw : 0);
-    const yPos = v => pad.top + ch - ((v - minV) / range) * ch;
+      let minV = 0, maxV = 0;
+      chartPlayers.forEach(n => chartData[n].forEach(v => { minV = Math.min(minV, v); maxV = Math.max(maxV, v); }));
+      if (minV === maxV) { minV -= 5; maxV += 5; }
+      const range = maxV - minV;
+      const steps = chartData[chartPlayers[0]].length - 1;
+      const xPos = i => pad.left + (steps > 0 ? (i / steps) * cw : 0);
+      const yPos = v => pad.top + ch - ((v - minV) / range) * ch;
 
-    // Grid line at 0
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    const y0 = yPos(0);
-    ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + cw, y0); ctx.stroke();
-    ctx.setLineDash([]);
-
-    // X axis labels
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.font = `${10}px DM Mono, monospace`;
-    ctx.textAlign = 'center';
-    for (let i = 0; i <= steps; i++) {
-      if (i === 0) continue;
-      ctx.fillText(`P${i}`, xPos(i), H - 8);
-    }
-
-    // Y axis labels
-    ctx.textAlign = 'right';
-    [minV, 0, maxV].forEach(v => {
-      const y = yPos(v);
-      if (y < pad.top || y > pad.top + ch) return;
-      ctx.fillStyle = v === 0 ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.25)';
-      ctx.fillText(`€${v}`, pad.left - 4, y + 3);
-    });
-
-    // Lines
-    chartPlayers.forEach((name, ni) => {
-      const color = profiles[name]?.color || CHART_COLORS[ni % CHART_COLORS.length];
-      const data = chartData[name];
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      data.forEach((v, i) => {
-        if (i === 0) ctx.moveTo(xPos(i), yPos(v));
-        else ctx.lineTo(xPos(i), yPos(v));
-      });
-      ctx.stroke();
-
-      // Dot at last point
-      const last = data[data.length - 1];
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(xPos(data.length - 1), yPos(last), 4, 0, Math.PI * 2);
+      // Background
+      ctx.fillStyle = 'rgba(0,0,0,0.2)';
+      ctx.roundRect(pad.left, pad.top, cw, ch, 4);
       ctx.fill();
 
-      // Name label
-      ctx.fillStyle = color;
-      ctx.font = `bold 10px DM Sans, sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.fillText(name, xPos(data.length - 1) + 6, yPos(last) + 4);
-    });
+      // Grid lines
+      const gridVals = [];
+      const step = Math.ceil(range / 4 / 5) * 5;
+      for (let v = Math.ceil(minV/step)*step; v <= maxV; v += step) gridVals.push(v);
+      gridVals.forEach(v => {
+        const y = yPos(v);
+        ctx.strokeStyle = v === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.06)';
+        ctx.lineWidth = v === 0 ? 1.5 : 1;
+        ctx.setLineDash(v === 0 ? [] : [3,3]);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cw, y); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.font = `10px DM Mono, monospace`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`€${v}`, pad.left - 4, y + 3);
+      });
+
+      // X labels
+      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.font = `10px DM Mono, monospace`;
+      for (let i = 1; i <= steps; i++) {
+        ctx.fillText(`P${i}`, xPos(i), H - 8);
+      }
+
+      // Draw lines
+      chartPlayers.forEach((name, ni) => {
+        const color = profiles[name]?.color || CHART_COLORS[ni % CHART_COLORS.length];
+        const data = chartData[name];
+        const isHL = highlightedPlayer === null || highlightedPlayer === name;
+        ctx.globalAlpha = isHL ? 1 : 0.12;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = isHL ? 3 : 1.5;
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        data.forEach((v, i) => i === 0 ? ctx.moveTo(xPos(i), yPos(v)) : ctx.lineTo(xPos(i), yPos(v)));
+        ctx.stroke();
+
+        // Dots at each point
+        data.forEach((v, i) => {
+          if (i === 0) return;
+          ctx.fillStyle = color;
+          ctx.beginPath();
+          ctx.arc(xPos(i), yPos(v), isHL ? 3.5 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        });
+
+        ctx.globalAlpha = 1;
+      });
+    }
+
+    // Build legend
+    const legend = document.getElementById('chart-legend');
+    if (legend) {
+      legend.innerHTML = chartPlayers.map((name, ni) => {
+        const color = profiles[name]?.color || CHART_COLORS[ni % CHART_COLORS.length];
+        const last = chartData[name][chartData[name].length - 1];
+        const label = last > 0 ? `+€${last}` : `€${last}`;
+        return `<div class="chart-legend-item" data-name="${name}" onclick="highlightLine('${name}')"
+          style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,0.3);
+          border:1px solid ${color}33;border-radius:20px;padding:5px 12px;cursor:pointer;transition:all 0.2s;">
+          <div style="width:12px;height:3px;border-radius:2px;background:${color};flex-shrink:0;"></div>
+          <span style="font-family:'DM Sans',sans-serif;font-size:0.82rem;">${name}</span>
+          <span style="font-family:'Cinzel',serif;font-size:0.78rem;color:${last>=0?'var(--neon)':'var(--red2)'};">${label}</span>
+        </div>`;
+      }).join('');
+    }
+
+    window.highlightLine = function(name) {
+      highlightedPlayer = (highlightedPlayer === name) ? null : name;
+      document.querySelectorAll('.chart-legend-item').forEach(el => {
+        const isActive = highlightedPlayer === null || el.dataset.name === highlightedPlayer;
+        el.style.opacity = isActive ? '1' : '0.35';
+      });
+      drawChart();
+    };
+
+    drawChart();
   }
 }
 
