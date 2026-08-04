@@ -447,7 +447,8 @@
 <div class="page" id="page-history">
   <div class="history-header">
     <h2>Storico</h2>
-    <button class="btn-danger" onclick="confirmClearHistory()" id="btn-clear-history" style="display:none;">Cancella tutto</button>
+    <button class="btn-secondary" onclick="exportBackup()" id="btn-export-backup" style="display:none;margin-right:8px;">Esporta backup</button>
+<button class="btn-danger" onclick="confirmClearHistory()" id="btn-clear-history" style="display:none;">Cancella tutto</button>
   </div>
   <div id="history-content"></div>
 </div>
@@ -715,6 +716,20 @@ async function fsUpdate(fields) {
 // Mantenuta per i casi in cui serve davvero pubblicare tutto lo stato.
 async function syncToFirebase() {
   await fsUpdate({ history, roster, session: currentSession, liveGame: buildLiveGame(), profiles });
+}
+
+// Rete di sicurezza extra e gratuita: ogni partita completata viene salvata ANCHE
+// come documento singolo in una sotto-collezione dedicata (rooms/{code}/games/{timestamp}).
+// Questa scrittura e' additiva (crea solo nuovi documenti, non tocca mai gli altri campi
+// ne' li sovrascrive), quindi resta un backup recuperabile anche se l'array "history"
+// dovesse mai essere danneggiato o svuotato per errore.
+async function backupGameRecord(record) {
+  if (!currentRoom || !window._firebaseReady) return;
+  try {
+    const { doc, collection, setDoc } = window._fsLib;
+    const ref = doc(collection(window._db, 'rooms', currentRoom, 'games'), String(record.timestamp));
+    await setDoc(ref, record);
+  } catch(e) { console.error('Backup error:', e); }
 }
 
 function saveSession() { fsUpdate({ session: currentSession }); }
@@ -1213,6 +1228,7 @@ function finishGame(sorted) {
   };
   history.unshift(record);
   fsUpdate({ history: arrayUnion(record) });
+  backupGameRecord(record);
   addGameToSession(record);
 
   const losers = sorted.filter(p => p.total > 100);
@@ -1267,9 +1283,11 @@ function confirmAbandon() {
 function renderHistory() {
   const cont = document.getElementById('history-content');
   const btnClear = document.getElementById('btn-clear-history');
+  const btnExport = document.getElementById('btn-export-backup');
 
   if (history.length === 0) {
     btnClear.style.display = 'none';
+    if (btnExport) btnExport.style.display = 'none';
     cont.innerHTML = `
       <div class="empty-state">
         <div class="icon">🃏</div>
@@ -1279,6 +1297,7 @@ function renderHistory() {
   }
 
   btnClear.style.display = 'block';
+  if (btnExport) btnExport.style.display = 'inline-block';
 
   // ---- Aggregate stats per player ----
   const ps = {}; // playerStats
@@ -1675,6 +1694,28 @@ function deleteGame(idx) {
     renderHistory();
     showNotification('Partita eliminata');
   }, 'Elimina');
+}
+
+function exportBackup() {
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    room: currentRoom,
+    history,
+    roster,
+    session: currentSession,
+    profiles
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const stamp = new Date().toISOString().slice(0,19).replace(/[:T]/g,'-');
+  a.href = url;
+  a.download = `4carte-backup-${currentRoom || 'room'}-${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  showNotification('Backup esportato ✓');
 }
 
 function confirmClearHistory() {
