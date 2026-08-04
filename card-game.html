@@ -532,7 +532,7 @@
 <!-- Firebase -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-app.js";
-import { getFirestore, doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore.js";
+import { getFirestore, doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-firestore.js";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.1/firebase-storage.js";
 
 const firebaseConfig = {
@@ -550,7 +550,7 @@ const storage = getStorage(app);
 
 window._db = db;
 window._storage = storage;
-window._fsLib = { doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion };
+window._fsLib = { doc, collection, setDoc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove };
 window._storageLib = { ref, uploadBytes, getDownloadURL };
 window._firebaseReady = true;
 window.dispatchEvent(new Event('firebase-ready'));
@@ -571,7 +571,7 @@ let currentSession = null;
 let profiles = {}; // { "NomeGiocatore": { pin, avatar, color } }
 
 function saveRoster() {
-  syncToFirebase();
+  fsUpdate({ roster });
 }
 
 // ---- CUSTOM CONFIRM ----
@@ -625,6 +625,7 @@ async function joinRoom() {
     _unsubscribe = onSnapshot(roomRef, (snap) => {
       if (!snap.exists()) return;
       const data = snap.data();
+      firestoreDataLoaded = true;
       history = data.history || [];
       roster = data.roster || [];
       currentSession = data.session || null;
@@ -677,30 +678,46 @@ if (!deviceId) {
 }
 let gameJustFinished = false; // previene il ripristino dopo fine partita regolare
 
-async function syncToFirebase() {
+let firestoreDataLoaded = false; // true dopo il primo caricamento reale da Firestore
+
+function buildLiveGame() {
+  return state.active ? {
+    active: true,
+    adminDevice: deviceId,
+    round: state.round,
+    roundCloser,
+    roundScores,
+    scoreStep,
+    startTime: state.startTime,
+    players: state.players.map(p => ({
+      name: p.name, total: p.total, scores: p.scores,
+      closures: p.closures || 0, resetCount: p.resetCount || 0
+    }))
+  } : null;
+}
+
+// Scrive SOLO i campi passati in "fields": un'azione che riguarda solo il roster
+// (es. aggiungere un giocatore) non toccherà mai lo storico o la sessione, e viceversa.
+// Inoltre non scrive nulla finché non abbiamo ricevuto almeno un aggiornamento reale
+// da Firestore, per evitare di sovrascrivere i dati remoti con uno stato locale vuoto.
+async function fsUpdate(fields) {
   if (!currentRoom || !window._firebaseReady) return;
+  if (!firestoreDataLoaded) {
+    console.warn('Sync ignorato: dati non ancora caricati da Firestore.');
+    return;
+  }
   try {
     const { doc, updateDoc } = window._fsLib;
-    const liveGame = state.active ? {
-      active: true,
-      adminDevice: deviceId,
-      round: state.round,
-      roundCloser,
-      roundScores,
-      scoreStep,
-      startTime: state.startTime,
-      players: state.players.map(p => ({
-        name: p.name, total: p.total, scores: p.scores,
-        closures: p.closures || 0, resetCount: p.resetCount || 0
-      }))
-    } : null;
-    await updateDoc(doc(window._db, 'rooms', currentRoom), {
-      history, roster, session: currentSession, liveGame, profiles
-    });
+    await updateDoc(doc(window._db, 'rooms', currentRoom), fields);
   } catch(e) { console.error('Sync error:', e); }
 }
 
-function saveSession() { syncToFirebase(); }
+// Mantenuta per i casi in cui serve davvero pubblicare tutto lo stato.
+async function syncToFirebase() {
+  await fsUpdate({ history, roster, session: currentSession, liveGame: buildLiveGame(), profiles });
+}
+
+function saveSession() { fsUpdate({ session: currentSession }); }
 
 // ---- PRIZE CALC ----
 function calcPrizes(n) {
@@ -886,7 +903,7 @@ function startGame() {
   state.active = true;
   state.startTime = Date.now();
   gameJustFinished = false;
-  syncToFirebase(); // pubblica liveGame
+  fsUpdate({ liveGame: buildLiveGame() }); // pubblica liveGame
   showPage('game');
   renderGame();
 }
@@ -1054,7 +1071,7 @@ function commitRound() {
     }
   });
   state.round++;
-  syncToFirebase(); // aggiorna punteggi live
+  fsUpdate({ liveGame: buildLiveGame() }); // aggiorna punteggi live
 
   // Check loser (chi ha SUPERATO 100, non chi è arrivato a 100)
   if (state.players.some(p => p.total > 100)) {
@@ -1195,7 +1212,7 @@ function finishGame(sorted) {
     }))
   };
   history.unshift(record);
-  syncToFirebase();
+  fsUpdate({ history: arrayUnion(record) });
   addGameToSession(record);
 
   const losers = sorted.filter(p => p.total > 100);
@@ -1223,7 +1240,7 @@ function finishGame(sorted) {
   document.getElementById('modal-results').innerHTML = html;
   state.active = false;
   gameJustFinished = true;
-  syncToFirebase(); // rimuove liveGame dal Firebase
+  fsUpdate({ liveGame: null }); // rimuove liveGame dal Firebase
   document.getElementById('overlay').classList.add('show');
 }
 
@@ -1241,7 +1258,7 @@ function confirmAbandon() {
   customConfirm('Abbandonare la partita? I dati del round corrente verranno persi.', () => {
     state.active = false;
     gameJustFinished = true;
-    syncToFirebase();
+    fsUpdate({ liveGame: null });
     showPage('setup');
   }, 'Abbandona');
 }
@@ -1652,8 +1669,9 @@ function toggleGameDetail(gi) {
 
 function deleteGame(idx) {
   customConfirm('Eliminare questa partita dallo storico?', () => {
+    const record = history[idx];
     history.splice(idx, 1);
-    syncToFirebase();
+    fsUpdate({ history: arrayRemove(record) });
     renderHistory();
     showNotification('Partita eliminata');
   }, 'Elimina');
@@ -1662,7 +1680,7 @@ function deleteGame(idx) {
 function confirmClearHistory() {
   customConfirm('Cancellare tutto lo storico? Questa azione è irreversibile.', () => {
     history = [];
-    syncToFirebase();
+    fsUpdate({ history: [] });
     renderHistory();
     showNotification('Storico cancellato');
   }, 'Cancella');
@@ -1797,12 +1815,17 @@ function deleteSessionGame(idx) {
     const game = currentSession.games[idx];
     // Rimuovi dalla sessione
     currentSession.games.splice(idx, 1);
+    const fields = { session: currentSession };
     // Rimuovi anche dallo storico globale (cerca per timestamp)
     if (game && game.timestamp) {
       const hi = history.findIndex(h => h.timestamp === game.timestamp);
-      if (hi !== -1) history.splice(hi, 1);
+      if (hi !== -1) {
+        const record = history[hi];
+        history.splice(hi, 1);
+        fields.history = arrayRemove(record);
+      }
     }
-    syncToFirebase();
+    fsUpdate(fields);
     renderSession();
     showNotification('Partita eliminata');
   }, 'Elimina');
@@ -2029,7 +2052,7 @@ async function claimProfile(name) {
     ...(photoURL && { photoURL })
   };
   profilePhotoFile = null;
-  syncToFirebase();
+  fsUpdate({ profiles });
   showNotification('Profilo rivendicato! ✓');
   renderProfileModal(name, 'view');
 }
@@ -2045,7 +2068,7 @@ async function saveProfile(name) {
     ...(photoURL && { photoURL })
   };
   profilePhotoFile = null;
-  syncToFirebase();
+  fsUpdate({ profiles });
   showNotification('Profilo aggiornato ✓');
   renderProfileModal(name, 'view');
 }
