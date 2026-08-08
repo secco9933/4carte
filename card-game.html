@@ -1227,7 +1227,7 @@ function finishGame(sorted) {
     }))
   };
   history.unshift(record);
-  fsUpdate({ history: arrayUnion(record) });
+  fsUpdate({ history: window._fsLib.arrayUnion(record) });
   backupGameRecord(record);
   addGameToSession(record);
 
