@@ -1690,7 +1690,7 @@ function deleteGame(idx) {
   customConfirm('Eliminare questa partita dallo storico?', () => {
     const record = history[idx];
     history.splice(idx, 1);
-    fsUpdate({ history: arrayRemove(record) });
+    fsUpdate({ history: window._fsLib.arrayRemove(record) });
     renderHistory();
     showNotification('Partita eliminata');
   }, 'Elimina');
@@ -1863,7 +1863,7 @@ function deleteSessionGame(idx) {
       if (hi !== -1) {
         const record = history[hi];
         history.splice(hi, 1);
-        fields.history = arrayRemove(record);
+        fields.history = window._fsLib.arrayRemove(record);
       }
     }
     fsUpdate(fields);
